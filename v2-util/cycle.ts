@@ -1,23 +1,22 @@
 import {z} from 'zod';
-import {createAllStates, dateResolvable, defaultRemoveSchema} from './util';
+import {commonMeta, dateResolvable} from './util';
 
-const commons = z.object({
-	id: z.string().uuid(),
-	createdAt: dateResolvable,
-	updatedAt: dateResolvable,
-	number: z.number(),
-	startsAt: dateResolvable,
-	endsAt: dateResolvable,
-	// TODO(@alii): Find types for these
-	issueCountHistory: z.array(z.unknown()),
-	completedIssueCountHistory: z.array(z.unknown()),
-	scopeHistory: z.array(z.unknown()),
-	completedScopeHistory: z.array(z.unknown()),
-	teamId: z.string().uuid(),
-	// TODO(@alii): Find types for this
-	uncompletedIssuesUponCloseIds: z.array(z.unknown()),
+export const cycle = z.object({
+	...commonMeta,
+	type: z.literal('Cycle'),
+	data: z.object({
+		id: z.string().uuid(),
+		createdAt: dateResolvable,
+		updatedAt: dateResolvable,
+		archivedAt: dateResolvable.optional(),
+		number: z.number(),
+		startsAt: dateResolvable,
+		endsAt: dateResolvable,
+		issueCountHistory: z.array(z.number()),
+		completedIssueCountHistory: z.array(z.number()),
+		scopeHistory: z.array(z.number()),
+		completedScopeHistory: z.array(z.number()),
+		teamId: z.string().uuid(),
+		uncompletedIssuesUponCloseIds: z.array(z.string().uuid()),
+	}),
 });
-
-export const cycle = createAllStates(commons, defaultRemoveSchema).and(
-	z.object({type: z.literal('Cycle')}),
-);

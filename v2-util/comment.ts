@@ -1,13 +1,15 @@
 import {z} from 'zod';
-import {dateResolvable} from './util';
+import {commonMeta, dateResolvable} from './util';
 
 export const comment = z.object({
+	...commonMeta,
 	type: z.literal('Comment'),
 	url: z.string().url(),
 	data: z.object({
 		id: z.string().uuid(),
 		createdAt: dateResolvable,
 		updatedAt: dateResolvable,
+		archivedAt: dateResolvable.optional(),
 		body: z.string(),
 		userId: z.string().uuid(),
 		issueId: z.string().uuid(),

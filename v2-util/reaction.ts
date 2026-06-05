@@ -1,24 +1,25 @@
 import {z} from 'zod';
-import {createAllStates, dateResolvable, defaultRemoveSchema} from './util';
+import {commonMeta, dateResolvable} from './util';
 
-const commons = z.object({
-	id: z.string().uuid(),
-	createdAt: dateResolvable,
-	updatedAt: dateResolvable,
-	emoji: z.string(),
-	userId: z.string().uuid(),
-	commentId: z.string().uuid(),
-	comment: z.object({
+export const reaction = z.object({
+	...commonMeta,
+	type: z.literal('Reaction'),
+	data: z.object({
 		id: z.string().uuid(),
-		body: z.string(),
+		createdAt: dateResolvable,
+		updatedAt: dateResolvable,
+		archivedAt: dateResolvable.optional(),
+		emoji: z.string(),
 		userId: z.string().uuid(),
-	}),
-	user: z.object({
-		id: z.string().uuid(),
-		name: z.string(),
+		commentId: z.string().uuid(),
+		comment: z.object({
+			id: z.string().uuid(),
+			body: z.string(),
+			userId: z.string().uuid(),
+		}),
+		user: z.object({
+			id: z.string().uuid(),
+			name: z.string(),
+		}),
 	}),
 });
-
-export const reaction = createAllStates(commons, defaultRemoveSchema).and(
-	z.object({type: z.literal('Reaction')}),
-);

@@ -1,18 +1,17 @@
 import {z} from 'zod';
-import {createAllStates, dateResolvable, defaultRemoveSchema} from './util';
+import {commonMeta, dateResolvable} from './util';
 
-const commons = z.object({
-	id: z.string().uuid(),
-	createdAt: dateResolvable,
-	updatedAt: dateResolvable,
-	name: z.string(),
-	color: z.string(),
-	teamId: z.string().uuid(),
-	creatorId: z.string().uuid(),
-});
-
-export const issueLabel = createAllStates(commons, defaultRemoveSchema).and(
-	z.object({
-		type: z.literal('IssueLabel'),
+export const issueLabel = z.object({
+	...commonMeta,
+	type: z.literal('IssueLabel'),
+	data: z.object({
+		id: z.string().uuid(),
+		createdAt: dateResolvable,
+		updatedAt: dateResolvable,
+		archivedAt: dateResolvable.optional(),
+		name: z.string(),
+		color: z.string(),
+		teamId: z.string().uuid().optional(),
+		creatorId: z.string().uuid().optional(),
 	}),
-);
+});
