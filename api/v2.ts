@@ -47,6 +47,30 @@ function humanFieldName(key: string): string {
 		.replace(/^./, c => c.toUpperCase());
 }
 
+const DESCRIPTION_LINE_CAP = 5;
+
+/**
+ * Cap free-form description fields to a few lines so a long Linear issue or
+ * project doesn't take up the whole Discord channel. Drops any trailing
+ * markdown horizontal rules / blank-only lines and appends an ellipsis when
+ * the original was longer.
+ */
+function summarizeDescription(text: string): string {
+	const lines = text.split('\n');
+	const head = lines.slice(0, DESCRIPTION_LINE_CAP);
+
+	// Strip trailing markdown rules / blank lines so the cut-off looks clean.
+	while (
+		head.length > 0 &&
+		/^(\s*|-{3,}|\*{3,}|_{3,})$/.test(head[head.length - 1] ?? '')
+	) {
+		head.pop();
+	}
+
+	const trimmed = head.join('\n');
+	return lines.length > head.length ? `${trimmed}\n…` : trimmed;
+}
+
 const LINEAR_PURPLE = hexToInt('#5864d9');
 const avatar = 'https://i.imgur.com/SICZmw8.png';
 const footer = 'Linear App';
@@ -269,7 +293,7 @@ export default api({
 				}
 
 				if (body.data.description?.length) {
-					embed.description = body.data.description;
+					embed.description = summarizeDescription(body.data.description);
 				}
 				break;
 			}
@@ -356,7 +380,7 @@ export default api({
 				embed.url = body.url ?? body.data.url ?? undefined;
 
 				if (body.data.description?.length) {
-					embed.description = body.data.description;
+					embed.description = summarizeDescription(body.data.description);
 				}
 
 				embed.fields = [];
