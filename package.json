@@ -15,14 +15,14 @@
 		"format:write": "prettier --write ."
 	},
 	"dependencies": {
-		"@linear/sdk": "^39.0.0",
-		"@vercel/node": "^5.0.0",
+		"@linear/sdk": "^86.0.0",
+		"@vercel/node": "^5.8.12",
 		"dayjs": "^1.11.21",
-		"zod": "^3.23.0"
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@types/node": "^20.11.0",
-		"prettier": "^3.2.5",
-		"typescript": "^5.4.0"
+		"@types/node": "^20.19.41",
+		"prettier": "^3.8.3",
+		"typescript": "^5.9.3"
 	}
 }
