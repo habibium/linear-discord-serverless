@@ -123,15 +123,24 @@ export default api({
 					client.issue(body.data.issueId).catch(() => null),
 				]);
 
+				const verb =
+					body.action === 'create'
+						? 'Comment on'
+						: body.action === 'update'
+							? 'Comment edited on'
+							: 'Comment removed from';
 				const issueKey = issueLookup?.identifier;
 				embed.title = issueKey
-					? `Comment on ${body.data.issue.title} [${issueKey}]`
-					: `Comment on ${body.data.issue.title}`;
+					? `${verb} ${body.data.issue.title} [${issueKey}]`
+					: `${verb} ${body.data.issue.title}`;
 				embed.description = body.data.body;
 				if (comment?.url) {
 					embed.url = comment.url;
 				} else if (issueLookup?.url) {
 					embed.url = issueLookup.url;
+				}
+				if (body.action === 'remove') {
+					embed.color = hexToInt('#d95858');
 				}
 				embed.author = {
 					name: author.name,
@@ -197,14 +206,32 @@ export default api({
 			}
 
 			case 'Reaction': {
-				const comment = await client.comment({id: body.data.commentId});
+				const targetField = body.data.commentId
+					? {
+							name: 'Comment',
+							url: (
+								await client
+									.comment({id: body.data.commentId})
+									.catch(() => null)
+							)?.url,
+						}
+					: body.data.issue
+						? {
+								name: `Issue ${body.data.issue.identifier ?? ''}`.trim(),
+								url: body.data.issue.url ?? undefined,
+							}
+						: null;
 
 				embed.title = `Reaction ${body.action}d by ${body.data.user.name}.`;
-				embed.url = comment.url;
+				if (targetField?.url) {
+					embed.url = targetField.url;
+				}
 				embed.fields = [
 					{
-						name: 'Comment',
-						value: `[Click Here](${comment.url})`,
+						name: targetField?.name ?? 'Target',
+						value: targetField?.url
+							? `[Click Here](${targetField.url})`
+							: '(unavailable)',
 						inline: true,
 					},
 					{name: 'Emoji', value: `:${body.data.emoji}:`, inline: true},
