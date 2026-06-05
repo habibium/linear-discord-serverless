@@ -55,6 +55,28 @@ function humanFieldName(key: string): string {
 		.replace(/^./, c => c.toUpperCase());
 }
 
+const DESCRIPTION_LINE_CAP = 5;
+
+/**
+ * Cap free-form description fields to a few lines so a long Linear issue or
+ * project doesn't take up the whole Discord channel. Drops trailing markdown
+ * rules / blank-only lines and appends an ellipsis when there's more.
+ */
+function summarizeDescription(text: string): string {
+	const lines = text.split('\n');
+	const head = lines.slice(0, DESCRIPTION_LINE_CAP);
+
+	while (
+		head.length > 0 &&
+		/^(\s*|-{3,}|\*{3,}|_{3,})$/.test(head[head.length - 1] ?? '')
+	) {
+		head.pop();
+	}
+
+	const trimmed = head.join('\n');
+	return lines.length > head.length ? `${trimmed}\n…` : trimmed;
+}
+
 export default api({
 	async POST(req) {
 		const forwardedFor = req.headers['x-vercel-forwarded-for'];
@@ -236,7 +258,7 @@ export default api({
 				}
 
 				if (body.data.description?.length) {
-					embed.description = body.data.description;
+					embed.description = summarizeDescription(body.data.description);
 				}
 				break;
 			}
@@ -327,7 +349,7 @@ export default api({
 				embed.url = body.url ?? body.data.url ?? undefined;
 
 				if (body.data.description?.length) {
-					embed.description = body.data.description;
+					embed.description = summarizeDescription(body.data.description);
 				}
 
 				embed.fields = [];
