@@ -28,6 +28,12 @@ const LINEAR_IPS = new Set([
 	'35.222.25.142',
 ]);
 
+// Linear ships many event types we don't render (Customer, Document,
+// IssueAttachment, Initiative, ProjectUpdate, IssueSLA, OAuthApp,
+// IssueLabel, Project, …). Anything outside this set 200-skips so Linear
+// stops retrying webhooks that the handler intentionally ignores.
+const RENDERED_TYPES = new Set(['Comment', 'Issue', 'Cycle', 'Reaction']);
+
 export default api({
 	async POST(req) {
 		const forwardedFor = req.headers['x-vercel-forwarded-for'];
@@ -53,7 +59,29 @@ export default api({
 			headers: {'User-Agent': 'github.com/alii/linear-discord-serverless'},
 		});
 
-		const body = req.body as z.infer<typeof bodySchema>;
+		const rawType =
+			typeof (req.body as {type?: unknown})?.type === 'string'
+				? (req.body as {type: string}).type
+				: '<missing>';
+
+		if (!RENDERED_TYPES.has(rawType)) {
+			console.log(`Skipping unsupported event type: ${rawType}`);
+			return {skipped: rawType};
+		}
+
+		const parseResult = bodySchema.safeParse(req.body);
+		if (!parseResult.success) {
+			console.error(
+				`Schema parse failed for type=${rawType}:`,
+				JSON.stringify(parseResult.error.issues, null, 2),
+			);
+			console.error('Raw payload:', JSON.stringify(req.body));
+			throw new HttpError(
+				400,
+				`Webhook body did not match the expected schema for type ${rawType}.`,
+			);
+		}
+		const body = parseResult.data;
 
 		const embed: DiscordEmbed = {
 			color: LINEAR_PURPLE,
@@ -64,11 +92,26 @@ export default api({
 		switch (body.type) {
 			case 'Comment': {
 				const author = await client.user(body.data.userId);
-				const comment = await client.comment({id: body.data.id});
 
-				embed.title = `Comment on ${body.data.issue.title} [${getId(body.url)}]`;
+				// Linear's Comment payload doesn't carry the issue's identifier
+				// or url, so look it up. The lookup can fail when a comment is
+				// being removed because its parent issue is being deleted —
+				// fall back to the bracket-less title in that case.
+				const [comment, issueLookup] = await Promise.all([
+					client.comment({id: body.data.id}).catch(() => null),
+					client.issue(body.data.issueId).catch(() => null),
+				]);
+
+				const issueKey = issueLookup?.identifier;
+				embed.title = issueKey
+					? `Comment on ${body.data.issue.title} [${issueKey}]`
+					: `Comment on ${body.data.issue.title}`;
 				embed.description = body.data.body;
-				embed.url = comment.url;
+				if (comment?.url) {
+					embed.url = comment.url;
+				} else if (issueLookup?.url) {
+					embed.url = issueLookup.url;
+				}
 				embed.author = {
 					name: author.name,
 					icon_url: author.avatarUrl ?? undefined,
@@ -77,24 +120,29 @@ export default api({
 			}
 
 			case 'Issue': {
-				const creator = await client.user(body.data.creatorId);
+				const creator = await client
+					.user(body.data.creatorId)
+					.catch(() => null);
 				const assignee = body.data.assigneeId
-					? await client.user(body.data.assigneeId)
+					? await client.user(body.data.assigneeId).catch(() => null)
 					: null;
 
 				embed.author = {
-					name: `${body.action}d by ${creator.name}`,
-					icon_url: creator.avatarUrl ?? undefined,
-					url: creator.url,
+					name: `${body.action}d by ${creator?.name ?? 'someone'}`,
+					icon_url: creator?.avatarUrl ?? undefined,
+					url: creator?.url,
 				};
-				embed.title = `[${getId(body.url)}] ${body.data.title}`;
-				embed.url = body.url;
+				const issueUrl = body.url ?? body.data.url ?? undefined;
+				const issueKey =
+					body.data.identifier ?? (issueUrl ? getId(issueUrl) : '?');
+				embed.title = `[${issueKey}] ${body.data.title}`;
+				embed.url = issueUrl;
 				embed.color = hexToInt(body.data.state.color);
 				embed.fields = [
 					{name: 'State', value: body.data.state.name, inline: true},
 				];
 
-				if (body.data.labels) {
+				if (body.data.labels && body.data.labels.length > 0) {
 					embed.fields.push({
 						name: 'Labels',
 						value: body.data.labels
@@ -119,14 +167,34 @@ export default api({
 			}
 
 			case 'Reaction': {
-				const comment = await client.comment({id: body.data.commentId});
+				// Reactions now attach to either a comment (legacy) or an issue
+				// (current). Render whichever target the payload carries.
+				const targetField = body.data.commentId
+					? {
+							name: 'Comment',
+							url: (
+								await client
+									.comment({id: body.data.commentId})
+									.catch(() => null)
+							)?.url,
+						}
+					: body.data.issue
+						? {
+								name: `Issue ${body.data.issue.identifier ?? ''}`.trim(),
+								url: body.data.issue.url ?? undefined,
+							}
+						: null;
 
 				embed.title = `Reaction ${body.action}d by ${body.data.user.name}.`;
-				embed.url = comment.url;
+				if (targetField?.url) {
+					embed.url = targetField.url;
+				}
 				embed.fields = [
 					{
-						name: 'Comment',
-						value: `[Click Here](${comment.url})`,
+						name: targetField?.name ?? 'Target',
+						value: targetField?.url
+							? `[Click Here](${targetField.url})`
+							: '(unavailable)',
 						inline: true,
 					},
 					{name: 'Emoji', value: `:${body.data.emoji}:`, inline: true},
@@ -139,11 +207,12 @@ export default api({
 				const cycle = await client.cycle(body.data.id);
 
 				const issues =
-					cycle.issueCountHistory[cycle.issueCountHistory.length - 1];
-
+					(cycle.issueCountHistory ?? [])[
+						(cycle.issueCountHistory ?? []).length - 1
+					];
 				const completed =
-					cycle.completedIssueCountHistory[
-						cycle.completedIssueCountHistory.length - 1
+					(cycle.completedIssueCountHistory ?? [])[
+						(cycle.completedIssueCountHistory ?? []).length - 1
 					];
 
 				embed.title = `Cycle ${body.action}d for team ${team.name}`;
@@ -170,13 +239,6 @@ export default api({
 					embed.description = team.description;
 				}
 				break;
-			}
-
-			default: {
-				throw new HttpError(
-					400,
-					`The resource type ${body.type} is not supported yet!`,
-				);
 			}
 		}
 

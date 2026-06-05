@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {commonMeta, dateResolvable} from './util';
+import {commonMeta, dateResolvable, nullableDate} from './util';
 
 export const cycle = z.object({
 	...commonMeta,
@@ -8,15 +8,15 @@ export const cycle = z.object({
 		id: z.string().uuid(),
 		createdAt: dateResolvable,
 		updatedAt: dateResolvable,
-		archivedAt: dateResolvable.optional(),
+		archivedAt: nullableDate,
 		number: z.number(),
 		startsAt: dateResolvable,
 		endsAt: dateResolvable,
-		issueCountHistory: z.array(z.number()),
-		completedIssueCountHistory: z.array(z.number()),
-		scopeHistory: z.array(z.number()),
-		completedScopeHistory: z.array(z.number()),
+		issueCountHistory: z.array(z.number()).nullish(),
+		completedIssueCountHistory: z.array(z.number()).nullish(),
+		scopeHistory: z.array(z.number()).nullish(),
+		completedScopeHistory: z.array(z.number()).nullish(),
 		teamId: z.string().uuid(),
-		uncompletedIssuesUponCloseIds: z.array(z.string().uuid()),
+		uncompletedIssuesUponCloseIds: z.array(z.string().uuid()).nullish(),
 	}),
 });

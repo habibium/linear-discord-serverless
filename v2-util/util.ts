@@ -19,6 +19,16 @@ export const dateResolvable = z
 	.or(z.string())
 	.transform(value => dayjs(value));
 
+/**
+ * Date-resolvable that also accepts `null` / `undefined`, which Linear sends
+ * for unset timestamp fields (archivedAt, dueDate, …).
+ */
+export const nullableDate = z
+	.date()
+	.or(z.string())
+	.nullish()
+	.transform(value => (value == null ? null : dayjs(value)));
+
 export enum Action {
 	CREATE = 'create',
 	UPDATE = 'update',
