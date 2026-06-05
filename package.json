@@ -5,6 +5,7 @@
 	"repository": "https://github.com/alii/linear-discord-serverless",
 	"author": "Alistair Smith <alistairsmith01@gmail.com>",
 	"license": "MIT",
+	"packageManager": "pnpm@11.5.1",
 	"engines": {
 		"node": ">=20"
 	},
