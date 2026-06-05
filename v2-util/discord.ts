@@ -57,14 +57,17 @@ export async function sendDiscordWebhook(
 	url: string,
 	payload: DiscordWebhookPayload,
 ): Promise<void> {
+	const requestBody = JSON.stringify(payload);
 	const res = await fetch(url, {
 		method: 'POST',
 		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify(payload),
+		body: requestBody,
 	});
 
 	if (res.status >= 400) {
 		const body = await res.text().catch(() => '<unreadable>');
+		console.error('Discord rejected payload:', requestBody);
+		console.error('Discord response body:', body);
 		throw new DiscordWebhookError(res.status, body);
 	}
 }
