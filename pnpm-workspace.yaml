@@ -1,5 +1,4 @@
-onlyBuiltDependencies:
-  - esbuild
+strictDepBuilds: false
 minimumReleaseAgeExclude:
   - '@vercel/build-utils'
   - '@vercel/node'
