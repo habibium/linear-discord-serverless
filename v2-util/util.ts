@@ -61,4 +61,7 @@ export const commonMeta = {
 	webhookId: z.string().optional(),
 	webhookTimestamp: z.number().optional(),
 	actor: actorSchema.optional(),
+	// Linear ships this on update events; keys are the changed fields and
+	// values are the previous values. Shape is intentionally loose.
+	updatedFrom: z.record(z.string(), z.unknown()).nullish(),
 };

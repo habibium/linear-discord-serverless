@@ -23,7 +23,29 @@ const querySchema = z.object({
 // Linear ships many event types we don't render (Customer, Document,
 // IssueAttachment, Initiative, ProjectUpdate, IssueSLA, OAuthApp, …).
 // Anything outside this set 200-skips so Linear stops retrying.
-const RENDERED_TYPES = new Set(['Comment', 'Issue', 'Cycle', 'Reaction']);
+const RENDERED_TYPES = new Set([
+	'Comment',
+	'Issue',
+	'Cycle',
+	'Reaction',
+	'Project',
+]);
+
+const PRIORITY_LABELS = [
+	'No priority',
+	'Urgent',
+	'High',
+	'Medium',
+	'Low',
+] as const;
+
+function humanFieldName(key: string): string {
+	// e.g. priorityLabel -> Priority Label; updatedAt -> Updated At
+	return key
+		.replace(/Id$/, '')
+		.replace(/([a-z])([A-Z])/g, '$1 $2')
+		.replace(/^./, c => c.toUpperCase());
+}
 
 const LINEAR_PURPLE = hexToInt('#5864d9');
 const avatar = 'https://i.imgur.com/SICZmw8.png';
@@ -150,9 +172,14 @@ export default api({
 			}
 
 			case 'Issue': {
-				const assignee = body.data.assigneeId
-					? await client.user(body.data.assigneeId)
-					: null;
+				const [assignee, projectLookup] = await Promise.all([
+					body.data.assigneeId
+						? client.user(body.data.assigneeId).catch(() => null)
+						: Promise.resolve(null),
+					body.data.projectId
+						? client.project(body.data.projectId).catch(() => null)
+						: Promise.resolve(null),
+				]);
 
 				// `actor` identifies the user who performed this specific action
 				// (e.g. an editor on an update), distinct from the issue's
@@ -164,12 +191,12 @@ export default api({
 							avatarUrl: body.actor.avatarUrl,
 							url: body.actor.url,
 						}
-					: await client.user(body.data.creatorId);
+					: await client.user(body.data.creatorId).catch(() => null);
 
 				embed.author = {
-					name: `${body.action}d by ${performer.name}`,
-					icon_url: performer.avatarUrl ?? undefined,
-					url: performer.url,
+					name: `${body.action}d by ${performer?.name ?? 'someone'}`,
+					icon_url: performer?.avatarUrl ?? undefined,
+					url: performer?.url,
 				};
 				const issueUrl = body.url ?? body.data.url ?? undefined;
 				const issueKey =
@@ -181,7 +208,15 @@ export default api({
 					{name: 'State', value: body.data.state.name, inline: true},
 				];
 
-				if (body.data.labels) {
+				if (typeof body.data.priority === 'number') {
+					const label =
+						body.data.priorityLabel ??
+						PRIORITY_LABELS[body.data.priority] ??
+						'No priority';
+					embed.fields.push({name: 'Priority', value: label, inline: true});
+				}
+
+				if (body.data.labels && body.data.labels.length > 0) {
 					embed.fields.push({
 						name: 'Labels',
 						value: body.data.labels
@@ -197,6 +232,30 @@ export default api({
 						value: `[${assignee.name}](${assignee.url})`,
 						inline: true,
 					});
+				}
+
+				if (projectLookup) {
+					embed.fields.push({
+						name: 'Project',
+						value: `[${projectLookup.name}](${projectLookup.url})`,
+						inline: true,
+					});
+				}
+
+				if (body.action === 'update' && body.updatedFrom) {
+					const changed = Object.keys(body.updatedFrom).filter(
+						k => k !== 'updatedAt' && k !== 'sortOrder',
+					);
+					if (changed.length > 0) {
+						embed.fields.push({
+							name: 'Changed',
+							value: changed.map(humanFieldName).join(', '),
+						});
+					}
+				}
+
+				if (body.action === 'remove') {
+					embed.color = hexToInt('#d95858');
 				}
 
 				if (body.data.description?.length) {
@@ -273,6 +332,56 @@ export default api({
 				if (team.description) {
 					embed.description = team.description;
 				}
+				break;
+			}
+
+			case 'Project': {
+				const verb =
+					body.action === 'create'
+						? 'Project created'
+						: body.action === 'remove'
+							? 'Project removed'
+							: 'Project updated';
+				embed.title = `${verb}: ${body.data.name}`;
+				embed.url = body.url ?? body.data.url ?? undefined;
+
+				if (body.data.description?.length) {
+					embed.description = body.data.description;
+				}
+
+				embed.fields = [];
+
+				const statusName = body.data.status?.name ?? body.data.state;
+				if (statusName) {
+					embed.fields.push({
+						name: 'Status',
+						value: statusName,
+						inline: true,
+					});
+				}
+
+				if (body.data.status?.color) {
+					embed.color = hexToInt(body.data.status.color);
+				} else if (body.data.color) {
+					embed.color = hexToInt(body.data.color);
+				}
+
+				if (body.action === 'remove') {
+					embed.color = hexToInt('#d95858');
+				}
+
+				if (body.action === 'update' && body.updatedFrom) {
+					const changed = Object.keys(body.updatedFrom).filter(
+						k => k !== 'updatedAt' && k !== 'sortOrder',
+					);
+					if (changed.length > 0) {
+						embed.fields.push({
+							name: 'Changed',
+							value: changed.map(humanFieldName).join(', '),
+						});
+					}
+				}
+
 				break;
 			}
 		}
