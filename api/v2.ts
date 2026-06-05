@@ -216,12 +216,10 @@ export default api({
 					embed.fields.push({name: 'Priority', value: label, inline: true});
 				}
 
-				if (body.data.labels && body.data.labels.length > 0) {
+				if (body.data.dueDate) {
 					embed.fields.push({
-						name: 'Labels',
-						value: body.data.labels
-							.map((label: Label) => label.name)
-							.join(', '),
+						name: 'Due',
+						value: body.data.dueDate,
 						inline: true,
 					});
 				}
@@ -239,6 +237,18 @@ export default api({
 						name: 'Project',
 						value: `[${projectLookup.name}](${projectLookup.url})`,
 						inline: true,
+					});
+				}
+
+				// Labels on their own row so long label lists don't squish other
+				// fields. `inline: false` forces a full-width row.
+				if (body.data.labels && body.data.labels.length > 0) {
+					embed.fields.push({
+						name: 'Labels',
+						value: body.data.labels
+							.map((label: Label) => label.name)
+							.join(', '),
+						inline: false,
 					});
 				}
 

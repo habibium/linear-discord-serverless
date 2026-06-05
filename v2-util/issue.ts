@@ -48,6 +48,7 @@ export const issue = z.object({
 		projectId: z.string().uuid().nullish(),
 		identifier: z.string().nullish(),
 		url: z.string().url().nullish(),
+		dueDate: z.string().nullish(),
 		state,
 		team,
 		labels: z.array(label).nullish(),
