@@ -113,13 +113,26 @@ export default api({
 		switch (body.type) {
 			case 'Comment': {
 				const author = await client.user(body.data.userId);
-				const comment = await client.comment({id: body.data.id});
 
-				const issueUrl = body.url ?? body.data.url ?? undefined;
-				const issueKey = issueUrl ? getId(issueUrl) : '?';
-				embed.title = `Comment on ${body.data.issue.title} [${issueKey}]`;
+				// Linear's Comment payload doesn't carry the issue's `identifier`
+				// or `url`, so look it up. The lookup can fail for `remove` events
+				// that cascade from an issue deletion — fall back to the bracket-
+				// less title in that case.
+				const [comment, issueLookup] = await Promise.all([
+					client.comment({id: body.data.id}).catch(() => null),
+					client.issue(body.data.issueId).catch(() => null),
+				]);
+
+				const issueKey = issueLookup?.identifier;
+				embed.title = issueKey
+					? `Comment on ${body.data.issue.title} [${issueKey}]`
+					: `Comment on ${body.data.issue.title}`;
 				embed.description = body.data.body;
-				embed.url = comment.url;
+				if (comment?.url) {
+					embed.url = comment.url;
+				} else if (issueLookup?.url) {
+					embed.url = issueLookup.url;
+				}
 				embed.author = {
 					name: author.name,
 					icon_url: author.avatarUrl ?? undefined,
