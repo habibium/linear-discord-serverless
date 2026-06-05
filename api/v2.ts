@@ -6,6 +6,7 @@ import {bodySchema} from '../v2-util/schema';
 import fetch from 'node-fetch';
 import {Label} from '../v1-util/_types';
 import {api} from '../v2-util/api';
+import {resolveWebhookUrl} from '../v2-util/routes';
 import {getId} from '../v2-util/util';
 
 const querySchema = z.object({
@@ -166,7 +167,15 @@ export default api({
 			}
 		}
 
-		const webhook = `https://discord.com/api/webhooks/${webhookId}/${webhookToken}`;
+		const defaultWebhook = `https://discord.com/api/webhooks/${webhookId}/${webhookToken}`;
+
+		// Issue events can be routed to a project-specific webhook via the
+		// LDS_PROJECT_ROUTES env var; everything else falls through to the
+		// default webhook from the request URL.
+		const projectId =
+			body.type === 'Issue' ? body.data.projectId : undefined;
+
+		const webhook = resolveWebhookUrl(projectId, defaultWebhook);
 
 		await fetch(webhook, {
 			method: 'POST',

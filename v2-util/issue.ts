@@ -38,6 +38,7 @@ const commons = z.object({
 	subscriberIds: z.array(z.string().uuid()),
 	creatorId: z.string().uuid(),
 	labelIds: z.array(z.string().uuid()),
+	projectId: z.string().uuid().optional(),
 	state,
 	team,
 	labels: z.array(label).optional(),
