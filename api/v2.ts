@@ -7,12 +7,30 @@ import fetch from 'node-fetch';
 import {Label} from '../v1-util/_types';
 import {api} from '../v2-util/api';
 import {getId} from '../v2-util/util';
+import {verifyLinearSignature} from '../v2-util/verify';
+import type {VercelRequest} from '@vercel/node';
+
+// Disable Vercel's automatic body parser so we can verify the HMAC
+// signature against the exact raw request bytes Linear signed.
+export const config = {
+	api: {bodyParser: false},
+};
+
+const TIMESTAMP_TOLERANCE_MS = 60 * 1000;
 
 const querySchema = z.object({
 	api: z.string(),
 	token: z.string(),
 	id: z.string(),
 });
+
+async function readRawBody(req: VercelRequest): Promise<Buffer> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of req) {
+		chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+	}
+	return Buffer.concat(chunks);
+}
 
 const enum Colors {
 	LINEAR_PURPLE = '#5864d9',
@@ -27,14 +45,22 @@ const footer = 'Linear App • ⚡ lds.alistair.cloud';
 
 export default api({
 	async POST(req) {
-		// Linear's trusted ip range, this comes from
-		// https://developers.linear.app/docs/graphql/webhooks#how-does-a-webhook-work
-		const {success} = z
-			.enum(['35.231.147.226', '35.243.134.228'])
-			.safeParse(req.headers['x-vercel-forwarded-for']);
+		const secret = process.env.LINEAR_WEBHOOK_SECRET;
 
-		if (!success && process.env.NODE_ENV !== 'development') {
-			throw new HttpException(400, 'sus');
+		if (!secret) {
+			throw new HttpException(
+				500,
+				'Server is missing the LINEAR_WEBHOOK_SECRET environment variable.',
+			);
+		}
+
+		const rawHeader = req.headers['linear-signature'];
+		const signatureHeader = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+
+		const rawBody = await readRawBody(req);
+
+		if (!verifyLinearSignature(secret, signatureHeader, rawBody)) {
+			throw new HttpException(401, 'Invalid Linear webhook signature.');
 		}
 
 		const {
@@ -49,7 +75,16 @@ export default api({
 		});
 
 		// const body = bodySchema.parse(req.body);
-		const body = req.body as z.infer<typeof bodySchema>;
+		const body = JSON.parse(rawBody.toString('utf8')) as z.infer<
+			typeof bodySchema
+		> & {webhookTimestamp?: number};
+
+		if (
+			typeof body.webhookTimestamp === 'number' &&
+			Math.abs(Date.now() - body.webhookTimestamp) > TIMESTAMP_TOLERANCE_MS
+		) {
+			throw new HttpException(401, 'Webhook timestamp is outside the tolerance window.');
+		}
 
 		const embed = new MessageEmbed()
 			.setColor(Colors.LINEAR_PURPLE)
