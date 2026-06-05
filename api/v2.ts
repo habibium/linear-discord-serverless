@@ -71,16 +71,26 @@ export default api({
 			}
 
 			case 'Issue': {
-				const creator = await client.user(body.data.creatorId);
 				const assignee = body.data.assigneeId
 					? await client.user(body.data.assigneeId)
 					: null;
 
+				// `actor` is the user who performed this specific action — the editor
+				// on an update, not the original issue creator. When older Linear
+				// payloads don't include it, fall back to looking up the creator.
+				const performer = body.actor
+					? {
+							name: body.actor.name,
+							avatarUrl: body.actor.avatarUrl,
+							url: body.actor.url,
+					  }
+					: await client.user(body.data.creatorId);
+
 				embed
 					.setAuthor(
-						`${body.action}d by ${creator.name}`,
-						creator.avatarUrl,
-						creator.url,
+						`${body.action}d by ${performer.name}`,
+						performer.avatarUrl,
+						performer.url,
 					)
 					.setTitle(`[${getId(body.url)}] ${body.data.title}`)
 					.setURL(body.url)

@@ -7,10 +7,19 @@ import {project} from './project';
 import {reaction} from './reaction';
 import {dateResolvable, defaultAction} from './util';
 
+const actor = z.object({
+	id: z.string().uuid(),
+	name: z.string(),
+	email: z.string().optional(),
+	url: z.string().url().optional(),
+	avatarUrl: z.string().url().optional(),
+});
+
 const commons = z.object({
 	organizationId: z.string().uuid(),
 	createdAt: dateResolvable,
 	action: defaultAction,
+	actor: actor.optional(),
 });
 
 export const bodySchema = commons.and(
