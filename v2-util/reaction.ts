@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {commonMeta, dateResolvable} from './util';
+import {commonMeta, dateResolvable, nullableDate} from './util';
 
 export const reaction = z.object({
 	...commonMeta,
@@ -8,7 +8,7 @@ export const reaction = z.object({
 		id: z.string().uuid(),
 		createdAt: dateResolvable,
 		updatedAt: dateResolvable,
-		archivedAt: dateResolvable.optional(),
+		archivedAt: nullableDate,
 		emoji: z.string(),
 		userId: z.string().uuid(),
 		commentId: z.string().uuid(),

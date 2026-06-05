@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {commonMeta, dateResolvable} from './util';
+import {commonMeta, dateResolvable, nullableDate} from './util';
 
 const team = z.object({
 	id: z.string().uuid(),
@@ -25,28 +25,31 @@ const state = z.object({
 export const issue = z.object({
 	...commonMeta,
 	type: z.literal('Issue'),
-	url: z.string().url(),
+	url: z.string().url().nullish(),
 	data: z.object({
 		id: z.string().uuid(),
 		createdAt: dateResolvable,
 		updatedAt: dateResolvable,
-		archivedAt: dateResolvable.optional(),
+		archivedAt: nullableDate,
 		number: z.number().positive(),
 		title: z.string(),
-		description: z.string().optional(),
-		priority: z.number(),
-		boardOrder: z.number(),
-		sortOrder: z.number(),
-		previousIdentifiers: z.array(z.string()),
-		priorityLabel: z.string(),
+		description: z.string().nullish(),
+		priority: z.number().nullish(),
+		boardOrder: z.number().nullish(),
+		sortOrder: z.number().nullish(),
+		previousIdentifiers: z.array(z.string()).nullish(),
+		priorityLabel: z.string().nullish(),
 		teamId: z.string().uuid(),
 		stateId: z.string().uuid(),
-		assigneeId: z.string().uuid().optional(),
-		subscriberIds: z.array(z.string().uuid()),
+		assigneeId: z.string().uuid().nullish(),
+		subscriberIds: z.array(z.string().uuid()).nullish(),
 		creatorId: z.string().uuid(),
-		labelIds: z.array(z.string().uuid()),
+		labelIds: z.array(z.string().uuid()).nullish(),
+		projectId: z.string().uuid().nullish(),
+		identifier: z.string().nullish(),
+		url: z.string().url().nullish(),
 		state,
 		team,
-		labels: z.array(label).optional(),
+		labels: z.array(label).nullish(),
 	}),
 });

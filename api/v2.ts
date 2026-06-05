@@ -1,10 +1,18 @@
 import {LinearClient} from '@linear/sdk';
+import type {VercelRequest} from '@vercel/node';
 import {z} from 'zod';
-import {bodySchema} from '../v2-util/schema';
 import {api, HttpError} from '../v2-util/api';
 import {DiscordEmbed, hexToInt, sendDiscordWebhook} from '../v2-util/discord';
 import type {Label} from '../v2-util/issue';
+import {parseProjectRoutes, resolveWebhookUrl} from '../v2-util/routes';
+import {bodySchema} from '../v2-util/schema';
 import {getId} from '../v2-util/util';
+import {TIMESTAMP_TOLERANCE_MS, verifyLinearSignature} from '../v2-util/verify';
+
+// Disable Vercel's body parser so we can hash the exact bytes Linear signed.
+export const config = {
+	api: {bodyParser: false},
+};
 
 const querySchema = z.object({
 	api: z.string(),
@@ -12,35 +20,78 @@ const querySchema = z.object({
 	id: z.string(),
 });
 
-const LINEAR_PURPLE = hexToInt('#5864d9');
+// Linear ships many event types we don't render (Customer, Document,
+// IssueAttachment, Initiative, ProjectUpdate, IssueSLA, OAuthApp, …).
+// Anything outside this set 200-skips so Linear stops retrying.
+const RENDERED_TYPES = new Set(['Comment', 'Issue', 'Cycle', 'Reaction']);
 
+const LINEAR_PURPLE = hexToInt('#5864d9');
 const avatar = 'https://i.imgur.com/SICZmw8.png';
 const footer = 'Linear App';
 
-// Linear's documented webhook source IPs.
-// https://linear.app/developers/webhooks
-const LINEAR_IPS = new Set([
-	'35.231.147.226',
-	'35.243.134.228',
-	'34.140.253.14',
-	'34.38.87.206',
-	'34.134.222.122',
-	'35.222.25.142',
-]);
+async function readRawBody(req: VercelRequest): Promise<Buffer> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of req) {
+		chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+	}
+	return Buffer.concat(chunks);
+}
 
 export default api({
 	async POST(req) {
-		const forwardedFor = req.headers['x-vercel-forwarded-for'];
-		const sourceIp = Array.isArray(forwardedFor)
-			? forwardedFor[0]
-			: forwardedFor;
+		const secret = process.env.LINEAR_WEBHOOK_SECRET;
+		if (!secret) {
+			throw new HttpError(
+				500,
+				'Server is missing the LINEAR_WEBHOOK_SECRET environment variable.',
+			);
+		}
+
+		const rawHeader = req.headers['linear-signature'];
+		const signatureHeader = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+		const rawBody = await readRawBody(req);
+
+		const ok = await verifyLinearSignature(secret, signatureHeader, rawBody);
+		if (!ok) {
+			throw new HttpError(401, 'Invalid Linear webhook signature.');
+		}
+
+		const parsedRaw = JSON.parse(rawBody.toString('utf8')) as {
+			type?: unknown;
+			webhookTimestamp?: number;
+		};
 
 		if (
-			process.env.NODE_ENV !== 'development' &&
-			(!sourceIp || !LINEAR_IPS.has(sourceIp))
+			typeof parsedRaw.webhookTimestamp === 'number' &&
+			Math.abs(Date.now() - parsedRaw.webhookTimestamp) > TIMESTAMP_TOLERANCE_MS
 		) {
-			throw new HttpError(400, 'Request did not originate from Linear.');
+			throw new HttpError(
+				401,
+				'Webhook timestamp is outside the tolerance window.',
+			);
 		}
+
+		const rawType =
+			typeof parsedRaw.type === 'string' ? parsedRaw.type : '<missing>';
+
+		if (!RENDERED_TYPES.has(rawType)) {
+			console.log(`Skipping unsupported event type: ${rawType}`);
+			return {skipped: rawType};
+		}
+
+		const parseResult = bodySchema.safeParse(parsedRaw);
+		if (!parseResult.success) {
+			console.error(
+				`Schema parse failed for type=${rawType}:`,
+				JSON.stringify(parseResult.error.issues, null, 2),
+			);
+			console.error('Raw payload:', JSON.stringify(parsedRaw));
+			throw new HttpError(
+				400,
+				`Webhook body did not match the expected schema for type ${rawType}.`,
+			);
+		}
+		const body = parseResult.data;
 
 		const {
 			token: webhookToken,
@@ -53,8 +104,6 @@ export default api({
 			headers: {'User-Agent': 'github.com/alii/linear-discord-serverless'},
 		});
 
-		const body = req.body as z.infer<typeof bodySchema>;
-
 		const embed: DiscordEmbed = {
 			color: LINEAR_PURPLE,
 			footer: {text: footer, icon_url: avatar},
@@ -66,7 +115,9 @@ export default api({
 				const author = await client.user(body.data.userId);
 				const comment = await client.comment({id: body.data.id});
 
-				embed.title = `Comment on ${body.data.issue.title} [${getId(body.url)}]`;
+				const issueUrl = body.url ?? body.data.url ?? undefined;
+				const issueKey = issueUrl ? getId(issueUrl) : '?';
+				embed.title = `Comment on ${body.data.issue.title} [${issueKey}]`;
 				embed.description = body.data.body;
 				embed.url = comment.url;
 				embed.author = {
@@ -77,18 +128,32 @@ export default api({
 			}
 
 			case 'Issue': {
-				const creator = await client.user(body.data.creatorId);
 				const assignee = body.data.assigneeId
 					? await client.user(body.data.assigneeId)
 					: null;
 
+				// `actor` identifies the user who performed this specific action
+				// (e.g. an editor on an update), distinct from the issue's
+				// original creator. Fall back to a creator lookup for older
+				// payloads without `actor`.
+				const performer = body.actor
+					? {
+							name: body.actor.name,
+							avatarUrl: body.actor.avatarUrl,
+							url: body.actor.url,
+						}
+					: await client.user(body.data.creatorId);
+
 				embed.author = {
-					name: `${body.action}d by ${creator.name}`,
-					icon_url: creator.avatarUrl ?? undefined,
-					url: creator.url,
+					name: `${body.action}d by ${performer.name}`,
+					icon_url: performer.avatarUrl ?? undefined,
+					url: performer.url,
 				};
-				embed.title = `[${getId(body.url)}] ${body.data.title}`;
-				embed.url = body.url;
+				const issueUrl = body.url ?? body.data.url ?? undefined;
+				const issueKey =
+					body.data.identifier ?? (issueUrl ? getId(issueUrl) : '?');
+				embed.title = `[${issueKey}] ${body.data.title}`;
+				embed.url = issueUrl;
 				embed.color = hexToInt(body.data.state.color);
 				embed.fields = [
 					{name: 'State', value: body.data.state.name, inline: true},
@@ -140,7 +205,6 @@ export default api({
 
 				const issues =
 					cycle.issueCountHistory[cycle.issueCountHistory.length - 1];
-
 				const completed =
 					cycle.completedIssueCountHistory[
 						cycle.completedIssueCountHistory.length - 1
@@ -171,17 +235,14 @@ export default api({
 				}
 				break;
 			}
-
-			default: {
-				throw new HttpError(
-					400,
-					`The resource type ${body.type} is not supported yet!`,
-				);
-			}
 		}
 
-		const webhook = `https://discord.com/api/webhooks/${webhookId}/${webhookToken}`;
+		const defaultWebhook = `https://discord.com/api/webhooks/${webhookId}/${webhookToken}`;
+		const routes = parseProjectRoutes(process.env.LDS_PROJECT_ROUTES);
+		const projectId =
+			body.type === 'Issue' ? (body.data.projectId ?? undefined) : undefined;
+		const targetUrl = resolveWebhookUrl(routes, projectId, defaultWebhook);
 
-		await sendDiscordWebhook(webhook, {embeds: [embed], avatar_url: avatar});
+		await sendDiscordWebhook(targetUrl, {embeds: [embed], avatar_url: avatar});
 	},
 });

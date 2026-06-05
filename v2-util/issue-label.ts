@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {commonMeta, dateResolvable} from './util';
+import {commonMeta, dateResolvable, nullableDate} from './util';
 
 export const issueLabel = z.object({
 	...commonMeta,
@@ -8,10 +8,10 @@ export const issueLabel = z.object({
 		id: z.string().uuid(),
 		createdAt: dateResolvable,
 		updatedAt: dateResolvable,
-		archivedAt: dateResolvable.optional(),
+		archivedAt: nullableDate,
 		name: z.string(),
 		color: z.string(),
-		teamId: z.string().uuid().optional(),
-		creatorId: z.string().uuid().optional(),
+		teamId: z.string().uuid().nullish(),
+		creatorId: z.string().uuid().nullish(),
 	}),
 });
